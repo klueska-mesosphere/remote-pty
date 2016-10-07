@@ -9,18 +9,25 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-void error(const char *msg)
+#include "common.h"
+
+void usage(char *cmd)
 {
-  perror(msg);
+  fprintf(stderr,
+          "Usage: %s <hostname> <port> [--tty] <cmd> [<args...>]\n",
+          cmd);
   exit(1);
 }
 
 
 int main(int argc, char *argv[])
 {
-  if (argc < 3) {
-    fprintf(stderr, "Usage: %s <hostname> <port>\n", argv[0]);
-    exit(1);
+  if (argc < 4) {
+    usage(argv[0]);
+  }
+
+  if ((strcmp(argv[3], "--tty") == 0) && (argc < 5)) {
+    usage(argv[0]);
   }
 
   struct hostent *server = gethostbyname(argv[1]);
@@ -30,6 +37,15 @@ int main(int argc, char *argv[])
   }
 
   int portno = atoi(argv[2]);
+
+  bool tty = false;
+  int cmd_start_idx = 3;
+  if (strcmp(argv[3], "--tty") == 0) {
+    tty = true;
+    cmd_start_idx = 4;
+  }
+
+  char **cmd = &argv[cmd_start_idx];
 
   int sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0)  {
@@ -53,26 +69,10 @@ int main(int argc, char *argv[])
     error("ERROR connecting");
   }
 
-  printf("Please enter the message: ");
-
-  char buffer[256];
-  memset(buffer, 0, 256);
-
-  fgets(buffer, 255, stdin);
-
-  int n = write(sockfd,buffer,strlen(buffer));
+  int n = send_cmd_msg(sockfd, cmd, argc - cmd_start_idx, tty);
   if (n < 0) {
-    error("ERROR writing to socket");
+    error("ERROR writing cmd to socket");
   }
-
-  memset(buffer, 0, 256);
-
-  n = read(sockfd, buffer, 255);
-  if (n < 0)  {
-    error("ERROR reading from socket");
-  }
-
-  printf("%s\n",buffer);
 
   close(sockfd);
 

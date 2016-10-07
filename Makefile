@@ -2,7 +2,7 @@ PROGS = client server
 
 all: $(PROGS)
 
-$(PROGS): % : %.cpp
+$(PROGS): % : %.cpp common.h
 	g++ -std=gnu++11 -o $(@) $(^) -lutil
 
 clean:

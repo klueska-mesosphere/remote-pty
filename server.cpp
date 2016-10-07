@@ -8,9 +8,11 @@
 #include <sys/types.h> 
 #include <sys/socket.h>
 
-void error(const char *msg)
+#include "common.h"
+
+void usage(char *cmd)
 {
-  perror(msg);
+  fprintf(stderr, "Usage: %s <port>\n", cmd);
   exit(1);
 }
 
@@ -18,8 +20,7 @@ void error(const char *msg)
 int main(int argc, char *argv[])
 {
   if (argc < 2) {
-    fprintf(stderr, "Usage: %s <port>\n", argv[0]);
-    exit(1);
+    usage(argv[0]);
   }
 
   int portno = atoi(argv[1]);
@@ -35,7 +36,19 @@ int main(int argc, char *argv[])
   serv_addr.sin_addr.s_addr = INADDR_ANY;
   serv_addr.sin_port = htons(portno);
 
-  int result = bind(
+  int yes = 1;
+  int result = setsockopt(
+      sockfd,
+      SOL_SOCKET,
+      SO_REUSEADDR,
+      &yes,
+      sizeof(yes));
+
+  if (result < 0) {
+    error("ERROR on setsockopt");
+  }
+
+  result = bind(
       sockfd,
       (struct sockaddr *) &serv_addr,
       sizeof(serv_addr));
@@ -44,7 +57,11 @@ int main(int argc, char *argv[])
     error("ERROR on binding");
   }
 
-  listen(sockfd, 5);
+  result = listen(sockfd, 64);
+
+  if (result < 0) {
+    error("ERROR on listen");
+  }
 
   struct sockaddr_in cli_addr;
   socklen_t clilen = sizeof(cli_addr);
@@ -58,21 +75,13 @@ int main(int argc, char *argv[])
     error("ERROR on accept");
   }
 
-  char buffer[256];
-  memset(buffer, 0, 256);
-
-  int n = read(newsockfd, buffer, 255);
+  struct cmd_msg *message;
+  int n = read_cmd_msg(newsockfd, &message);
   if (n < 0) {
-    error("ERROR reading from socket");
+    error("ERROR reading cmd from socket");
   }
 
-  printf("Here is the message: %s\n",buffer);
-
-  n = write(newsockfd, "I got your message", 18);
-
-  if (n < 0) {
-    error("ERROR writing to socket");
-  }
+  dump_cmd_msg(message);
 
   close(newsockfd);
   close(sockfd);
