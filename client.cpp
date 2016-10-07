@@ -125,7 +125,7 @@ int main(int argc, char *argv[])
       break;
     }
 
-    write_all(outfd, buffer, n);
+    n = write_all(outfd, buffer, n);
     if (n < 0) {
       error("ERROR writing to outfd");
     }

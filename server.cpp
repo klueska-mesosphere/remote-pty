@@ -5,7 +5,7 @@
 
 #include <netinet/in.h>
 
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/socket.h>
 
 #include "common.h"
@@ -63,43 +63,55 @@ int main(int argc, char *argv[])
     error("ERROR on listen");
   }
 
-  struct sockaddr_in cli_addr;
-  socklen_t clilen = sizeof(cli_addr);
+  while (true) {
+    struct sockaddr_in cli_addr;
+    socklen_t clilen = sizeof(cli_addr);
 
-  int newsockfd = accept(
-      sockfd, 
-      (struct sockaddr *) &cli_addr, 
-      &clilen);
+    int newsockfd = accept(
+        sockfd,
+        (struct sockaddr *) &cli_addr,
+        &clilen);
 
-  if (newsockfd < 0)  {
-    error("ERROR on accept");
+    if (newsockfd < 0)  {
+      error("ERROR on accept");
+    }
+
+    int pid = fork();
+
+    if (pid == 0) {
+      struct cmd_msg *message;
+      int n = read_cmd_msg(newsockfd, &message);
+      if (n < 0) {
+        error("ERROR reading cmd from socket");
+      }
+
+      char **cmd = build_cmd_array(message);
+
+      if (dup2(newsockfd, STDIN_FILENO) != 0 ||
+          dup2(newsockfd, STDOUT_FILENO) != 1 ||
+          dup2(newsockfd, STDERR_FILENO) != 2 ) {
+        error("ERROR duplicating socket for stdin/stdout/stderr");
+      }
+
+      close(newsockfd);
+      close(sockfd);
+
+      result = execvp(cmd[0], cmd);
+      if (result < 0) {
+        error("ERROR execing cmd");
+      }
+    }
+
+    close(newsockfd);
+
+    int status;
+    result = wait_all(pid, &status);
+    if (result < 0) {
+      error("ERROR waiting for pid");
+    }
   }
 
-  struct cmd_msg *message;
-  int n = read_cmd_msg(newsockfd, &message);
-  if (n < 0) {
-    error("ERROR reading cmd from socket");
-  }
-
-  char **cmd = build_cmd_array(message);
-
-  dump_cmd_msg(message);
-
-  fclose(stdin);
-  fclose(stdout);
-  fclose(stderr);
-
-  if (dup(newsockfd) != 0 || dup(newsockfd) != 1 || dup(newsockfd) != 2 ) {
-    error("ERROR duplicating socket for stdin/stdout/stderr");
-  }
-
-  close(newsockfd);
   close(sockfd);
 
-  result = execvp(cmd[0], cmd);
-  if (result < 0) {
-    error("ERROR execing cmd");
-  }
-
-  return 0; 
+  return 0;
 }

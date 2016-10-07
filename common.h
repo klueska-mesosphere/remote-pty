@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <sys/types.h>
+#include <sys/wait.h>
 
 struct cmd_msg
 {
@@ -35,6 +36,32 @@ static inline int make_non_blocking(int fd)
   flags |= O_NONBLOCK;
 
   return fcntl(fd, F_SETFL, flags);
+}
+
+
+static inline int wait_all(int pid, int *status)
+{
+  while (true) {
+    int status;
+    int result = waitpid(-1, &status, 0);
+
+    if (result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      return result;
+    }
+
+    if (WIFSTOPPED(status)) {
+      continue;
+    }
+
+    if (pid == result) {
+      break;
+    }
+  }
+
+  return 0;
 }
 
 
