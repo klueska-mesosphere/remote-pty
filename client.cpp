@@ -8,6 +8,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 
 #include "common.h"
 
@@ -74,7 +75,61 @@ int main(int argc, char *argv[])
     error("ERROR writing cmd to socket");
   }
 
-  close(sockfd);
+  result = make_non_blocking(STDIN_FILENO);
+  if (result < 0) {
+    error("ERROR making stdin non blocking");
+  }
+
+  result = make_non_blocking(sockfd);
+  if (result < 0) {
+    error("ERROR making sockfd non blocking");
+  }
+
+  while (true) {
+    fd_set fd_in;
+    FD_ZERO(&fd_in);
+
+    FD_SET(STDIN_FILENO, &fd_in);
+    FD_SET(sockfd, &fd_in);
+
+    int result = select(sockfd + 1, &fd_in, NULL, NULL, NULL);
+
+    if (result < 0) {
+      error("ERROR waiting on select");
+    }
+
+    if (result == 0) {
+      continue;
+    }
+
+    int infd, outfd;
+
+    if (FD_ISSET(STDIN_FILENO, &fd_in)) {
+      infd = STDIN_FILENO;
+      outfd = sockfd;
+    }
+ 
+    if (FD_ISSET(sockfd, &fd_in)) {
+      infd = sockfd;
+      outfd = STDOUT_FILENO;
+    }
+
+    char buffer[256];
+
+    int n = read_all(infd, buffer, 256);
+    if (n < 0) {
+      error("ERROR reading from infd");
+    }
+
+    if (n == 0) {
+      break;
+    }
+
+    write_all(outfd, buffer, n);
+    if (n < 0) {
+      error("ERROR writing to outfd");
+    }
+  }
 
   return 0;
 }

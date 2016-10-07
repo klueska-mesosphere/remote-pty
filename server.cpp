@@ -81,10 +81,25 @@ int main(int argc, char *argv[])
     error("ERROR reading cmd from socket");
   }
 
+  char **cmd = build_cmd_array(message);
+
   dump_cmd_msg(message);
+
+  fclose(stdin);
+  fclose(stdout);
+  fclose(stderr);
+
+  if (dup(newsockfd) != 0 || dup(newsockfd) != 1 || dup(newsockfd) != 2 ) {
+    error("ERROR duplicating socket for stdin/stdout/stderr");
+  }
 
   close(newsockfd);
   close(sockfd);
+
+  result = execvp(cmd[0], cmd);
+  if (result < 0) {
+    error("ERROR execing cmd");
+  }
 
   return 0; 
 }

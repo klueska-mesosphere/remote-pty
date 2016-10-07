@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,10 +17,24 @@ struct cmd_msg
 };
 
 
-static void error(const char *msg)
+static inline void error(const char *msg)
 {
   perror(msg);
   exit(1);
+}
+
+
+static inline int make_non_blocking(int fd)
+{
+  int flags = fcntl(fd, F_GETFL, 0);
+
+  if(flags < 0) {
+   return flags;
+  }
+
+  flags |= O_NONBLOCK;
+
+  return fcntl(fd, F_SETFL, flags);
 }
 
 
@@ -56,6 +71,9 @@ static inline int read_all(int fd, char *buf, size_t count)
     if (length < 0) {
       if (errno == EINTR) {
         continue;
+      }
+      if (errno == EWOULDBLOCK) {
+        return offset;
       }
       return length;
     }
@@ -133,6 +151,20 @@ static inline int read_cmd_msg(int fd, struct cmd_msg** message)
   }
 
   return 0;
+}
+
+static inline char **build_cmd_array(struct cmd_msg* message)
+{
+  char **cmd = (char **)malloc(message->num_strings + 1);
+  char *strtab_ptr = message->strtab;
+
+  for (int i = 0; i < message->num_strings; i++) {
+    cmd[i] = strtab_ptr;
+    strtab_ptr += strlen(strtab_ptr) + 1;
+  }
+  cmd[message->num_strings] = NULL;
+
+  return cmd;
 }
 
 static inline void dump_cmd_msg(struct cmd_msg* message)
