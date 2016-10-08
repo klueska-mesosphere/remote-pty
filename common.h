@@ -25,6 +25,15 @@ static inline void error(const char *msg)
 }
 
 
+static inline int max3(int a, int b, int c)
+{
+  int m = a;
+  (m < b) && (m = b);
+  (m < c) && (m = c);
+  return m;
+}
+
+
 static inline int make_non_blocking(int fd)
 {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -115,6 +124,29 @@ static inline int read_all(int fd, char *buf, size_t count)
   assert(offset == count);
 
   return offset;
+}
+
+
+static inline int read_then_write(int infd, int outfd, int bufsize)
+{
+
+  char buffer[bufsize];
+
+  int n = read_all(infd, buffer, bufsize);
+  if (n < 0) {
+    return n;
+  }
+
+  if (n == 0) {
+    return n;
+  }
+
+  n = write_all(outfd, buffer, n);
+  if (n < 0) {
+    return n;
+  }
+
+  return n;
 }
 
 

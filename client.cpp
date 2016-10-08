@@ -102,34 +102,28 @@ int main(int argc, char *argv[])
       continue;
     }
 
-    int infd, outfd;
+    int stdin_n = -1, sockfd_n = -1;
 
     if (FD_ISSET(STDIN_FILENO, &fd_in)) {
-      infd = STDIN_FILENO;
-      outfd = sockfd;
+      stdin_n = read_then_write(STDIN_FILENO, sockfd, 256);
+      if (stdin_n < 0) {
+        error("ERROR reading from stdin");
+      }
     }
  
     if (FD_ISSET(sockfd, &fd_in)) {
-      infd = sockfd;
-      outfd = STDOUT_FILENO;
+      sockfd_n = read_then_write(sockfd, STDOUT_FILENO, 256);
+      if (sockfd_n < 0) {
+        error("ERROR writing to stdout");
+      }
     }
 
-    char buffer[256];
-
-    int n = read_all(infd, buffer, 256);
-    if (n < 0) {
-      error("ERROR reading from infd");
-    }
-
-    if (n == 0) {
+    if ((stdin_n == 0) || (sockfd_n == 0)) {
       break;
     }
-
-    n = write_all(outfd, buffer, n);
-    if (n < 0) {
-      error("ERROR writing to outfd");
-    }
   }
+
+  close(sockfd);
 
   return 0;
 }
