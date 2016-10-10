@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -8,15 +11,6 @@
 
 #include <sys/types.h>
 #include <sys/wait.h>
-
-struct cmd_msg
-{
-  int size;
-  bool tty;
-  int num_strings;
-  char strtab[];
-};
-
 
 static inline void error(const char *msg)
 {
@@ -149,92 +143,4 @@ static inline int read_then_write(int infd, int outfd, int bufsize)
   return n;
 }
 
-
-static inline int send_cmd_msg(int fd, char **cmd, int num_elements, bool tty)
-{
-  int strtab_size = 0;
-  int string_lengths[num_elements];
-
-  for (int i = 0; i < num_elements; i++) {
-    string_lengths[i] = strlen(cmd[i]) + 1;
-    strtab_size += string_lengths[i];
-  }
-
-  int message_size = sizeof(cmd_msg) + strtab_size;
-
-  struct cmd_msg message;
-  message.size = message_size;
-  message.tty = tty;
-  message.num_strings = num_elements;
-
-  int n = write_all(fd, (char *)&message, sizeof(cmd_msg));
-  if (n < 0) {
-    return n;
-  }
-
-  for (int i = 0; i < num_elements; i++) {
-    int n = write_all(fd, cmd[i], string_lengths[i]);
-    if (n < 0) {
-      return n;
-    }
-  }
-
-  return 0;
-}
-
-
-static inline int read_cmd_msg(int fd, struct cmd_msg** message)
-{
-  struct cmd_msg message_;
-
-  int n = read_all(fd, (char *)&message_, sizeof(cmd_msg));
-  if (n < 0) {
-    return n;
-  }
-
-  if (n < sizeof(cmd_msg)) {
-    return -1;
-  }
-
-  *message = (struct cmd_msg*)malloc(message_.size);
-
-  **message = message_;
-
-  n = read_all(fd, (*message)->strtab, (*message)->size - sizeof(cmd_msg));
-  if (n < 0) {
-    return n;
-  }
-
-  if (n < ((*message)->size - sizeof(cmd_msg))) {
-    return -1;
-  }
-
-  return 0;
-}
-
-static inline char **build_cmd_array(struct cmd_msg* message)
-{
-  char **cmd = (char **)malloc(message->num_strings + 1);
-  char *strtab_ptr = message->strtab;
-
-  for (int i = 0; i < message->num_strings; i++) {
-    cmd[i] = strtab_ptr;
-    strtab_ptr += strlen(strtab_ptr) + 1;
-  }
-  cmd[message->num_strings] = NULL;
-
-  return cmd;
-}
-
-static inline void dump_cmd_msg(struct cmd_msg* message)
-{
-  printf("size: %d\n", message->size);
-  printf("tty: %s\n", message->tty ? "true" : "false");
-  printf("num_strings: %d\n", message->num_strings);
-
-  char *strtab_ptr = message->strtab;
-  for (int i = 0; i < message->num_strings; i++) {
-    printf("string[%d]: %s\n", i, strtab_ptr);
-    strtab_ptr += strlen(strtab_ptr) + 1;
-  }
-}
+#endif // COMMON_H

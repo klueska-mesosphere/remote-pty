@@ -11,6 +11,7 @@
 #include <sys/select.h>
 
 #include "common.h"
+#include "msgs.h"
 
 void usage(char *cmd)
 {
@@ -70,7 +71,7 @@ int main(int argc, char *argv[])
     error("ERROR connecting");
   }
 
-  int n = send_cmd_msg(sockfd, cmd, argc - cmd_start_idx, tty);
+  int n = send_cmd_msg(sockfd, cmd, argc - cmd_start_idx, tty, NULL, NULL);
   if (n < 0) {
     error("ERROR writing cmd to socket");
   }

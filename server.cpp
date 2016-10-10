@@ -10,6 +10,7 @@
 #include <sys/select.h>
 
 #include "common.h"
+#include "msgs.h"
 
 volatile bool child_done;
 
@@ -103,8 +104,8 @@ int main(int argc, char *argv[])
       error("ERROR creating a std_err pipe.");
     }
 
-    struct cmd_msg *message;
-    int n = read_cmd_msg(newsockfd, &message);
+    struct msg_wrapper *message;
+    int n = recv_msg(newsockfd, &message);
     if (n < 0) {
       error("ERROR reading cmd from socket");
     }
@@ -114,7 +115,7 @@ int main(int argc, char *argv[])
     int pid = fork();
 
     if (pid == 0) {
-      char **cmd = build_cmd_array(message);
+      char **cmd = build_cmd_array(&message->msg.cmd);
 
       if (dup2(stdin_pipe[0], STDIN_FILENO) != 0 ||
           dup2(stdout_pipe[1], STDOUT_FILENO) != 1 ||
