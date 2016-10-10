@@ -1,3 +1,4 @@
+#include <pty.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +31,114 @@ void sigchld(int sig)
 
 int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 {
-  return -1;
+  int ttyfd;
+  char tty_name[256];
+  int pid = forkpty(&ttyfd, tty_name, &message->termios, &message->winsize);
+
+  if (pid == 0) {
+    char **cmd = build_cmd_array(message);
+
+    close(newsockfd);
+    close(sockfd);
+
+    int result = execvp(cmd[0], cmd);
+    if (result < 0) {
+      error("ERROR execing cmd");
+    }
+  }
+
+  if (make_non_blocking(newsockfd) < 0) {
+    error("ERROR making sockfd non blocking");
+  }
+
+  if (make_non_blocking(ttyfd) < 0) {
+    error("ERROR making ttyfd non blocking");
+  }
+
+  struct async_msg_state msg_state;
+  memset(&msg_state, 0, sizeof(struct async_msg_state));
+
+  int sockfd_n = -1, ttyfd_n = -1;
+
+  while(true) {
+    fd_set readfds;
+    FD_ZERO(&readfds);
+
+    if (sockfd_n != 0) {
+      FD_SET(newsockfd, &readfds);
+    }
+    if (ttyfd != 0) {
+      FD_SET(ttyfd, &readfds);
+    }
+
+    int maxfd = sockfd > ttyfd ? sockfd : ttyfd;
+
+    int result = select(maxfd + 1, &readfds, NULL, NULL, NULL);
+
+    if (result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
+      perror("ERROR waiting on select");
+      break;
+    }
+
+    if (result == 0) {
+      continue;
+    }
+
+    if (FD_ISSET(newsockfd, &readfds)) {
+      sockfd_n = recv_msg_async(newsockfd, &msg_state);
+
+      if (sockfd_n < 0) {
+        perror("ERROR reading from newsockfd");
+        break;
+      }
+
+      if (msg_state.finished) {
+        sockfd_n = write_all(
+            ttyfd,
+            msg_state.message->msg.io.data,
+            msg_state.message->msg.io.data_size);
+
+        if (sockfd_n < 0) {
+          perror("ERROR writing to ttyfd");
+          break;
+        }
+
+        free(msg_state.message);
+        memset(&msg_state, 0, sizeof(async_msg_state));
+      }
+    }
+
+    if (FD_ISSET(ttyfd, &readfds)) {
+      char buffer[256];
+
+      ttyfd_n = read_all(ttyfd, buffer, 256);
+      if (ttyfd_n < 0) {
+        perror("ERROR reading from ttyfd");
+        break;
+      }
+
+      if (ttyfd_n > 0) {
+        int n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
+        if (n < 0) {
+          perror("ERROR writing to newsockfd");
+          break;
+        }
+      }
+    }
+
+    if (sockfd_n == 0) {
+      break;
+    }
+
+    if (child_done && ttyfd_n == 0) {
+      break;
+    }
+  }
+
+  return pid;
 }
 
 
@@ -74,7 +182,6 @@ int run_without_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 
     int result = execvp(cmd[0], cmd);
     if (result < 0) {
-      free(cmd);
       error("ERROR execing cmd");
     }
   }

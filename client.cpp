@@ -1,4 +1,4 @@
-#include <netdb.h> 
+#include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +12,21 @@
 
 #include "common.h"
 #include "msgs.h"
+
+int ttyfd = -1;
+struct termios original_termios;
+struct winsize original_winsize;
+
+void sigterm(int sig)
+{
+   int result = tcsetattr(ttyfd, TCSANOW, &original_termios);
+   if (result < 0) {
+     error("ERROR setting original termios parameters");
+   }
+
+   ioctl(0, TIOCGWINSZ, &original_winsize);
+}
+
 
 void usage(char *cmd)
 {
@@ -71,14 +86,48 @@ int main(int argc, char *argv[])
     error("ERROR connecting");
   }
 
-  int n = send_cmd_msg(sockfd, cmd, argc - cmd_start_idx, tty, NULL, NULL);
+  int infd = STDIN_FILENO;
+  int outfd = STDOUT_FILENO;
+  int errfd = STDERR_FILENO;
+
+  if (tty) {
+    char *ttyname = ctermid(NULL);
+    if (ttyname == NULL) {
+      error("ERROR getting tty name");
+    }
+
+    ttyfd = open(ttyname, O_RDWR);
+    if (ttyfd < 0) {
+      error("ERROR opening tty device");
+    }
+
+    result = tcgetattr(ttyfd, &original_termios);
+    if (result < 0) {
+      error("ERROR getting termios");
+    }
+
+    ioctl(0, TIOCGWINSZ, &original_winsize);
+
+    infd = ttyfd;
+    outfd = ttyfd;
+    errfd = ttyfd;
+  }
+
+  int n = send_cmd_msg(
+      sockfd,
+      cmd,
+      argc - cmd_start_idx,
+      tty,
+      &original_termios,
+      &original_winsize);
+
   if (n < 0) {
     error("ERROR writing cmd to socket");
   }
 
-  result = make_non_blocking(STDIN_FILENO);
+  result = make_non_blocking(infd);
   if (result < 0) {
-    error("ERROR making stdin non blocking");
+    error("ERROR making infd non blocking");
   }
 
   result = make_non_blocking(sockfd);
@@ -89,20 +138,22 @@ int main(int argc, char *argv[])
   struct async_msg_state msg_state;
   memset(&msg_state, 0, sizeof(struct async_msg_state));
 
+  int infd_n = -1, sockfd_n = -1;
+
   while (true) {
-    int stdin_n = -1, sockfd_n = -1;
-    
     fd_set fd_in;
     FD_ZERO(&fd_in);
 
-    if (stdin_n != 0) {
-      FD_SET(STDIN_FILENO, &fd_in);
+    if (infd_n != 0) {
+      FD_SET(infd, &fd_in);
     }
     if (sockfd_n != 0) {
       FD_SET(sockfd, &fd_in);
     }
 
-    int result = select(sockfd + 1, &fd_in, NULL, NULL, NULL);
+    int maxfd = sockfd > infd ? sockfd : infd;
+
+    int result = select(maxfd + 1, &fd_in, NULL, NULL, NULL);
 
     if (result < 0) {
       error("ERROR waiting on select");
@@ -112,22 +163,22 @@ int main(int argc, char *argv[])
       continue;
     }
 
-    if (FD_ISSET(STDIN_FILENO, &fd_in)) {
+    if (FD_ISSET(infd, &fd_in)) {
       char buffer[256];
 
-      stdin_n = read_all(STDIN_FILENO, buffer, 256);
-      if (stdin_n < 0) {
-        error("ERROR reading from stdin");
+      infd_n = read_all(infd, buffer, 256);
+      if (infd_n < 0) {
+        error("ERROR reading from infd");
       }
 
-      if (stdin_n > 0) {
-        int n = send_io_msg(sockfd, STDIN_FILENO, buffer, stdin_n);
+      if (infd_n > 0) {
+        int n = send_io_msg(sockfd, STDIN_FILENO, buffer, infd_n);
         if (n < 0) {
           error("ERROR writing to sockfd");
         }
       }
     }
- 
+
     if (FD_ISSET(sockfd, &fd_in)) {
       sockfd_n = recv_msg_async(sockfd, &msg_state);
 
@@ -136,8 +187,22 @@ int main(int argc, char *argv[])
       }
 
       if (msg_state.finished) {
+        int destfd = -1;
+
+        switch (msg_state.message->msg.io.destfd) {
+          case STDIN_FILENO:
+            destfd = infd;
+            break;
+          case STDOUT_FILENO:
+            destfd = outfd;
+            break;
+          case STDERR_FILENO:
+            destfd = errfd;
+            break;
+        }
+
         sockfd_n = write_all(
-            msg_state.message->msg.io.destfd,
+            destfd,
             msg_state.message->msg.io.data,
             msg_state.message->msg.io.data_size);
 
@@ -150,9 +215,18 @@ int main(int argc, char *argv[])
       }
     }
 
-    if ((stdin_n == 0) || (sockfd_n == 0)) {
+    if ((infd_n == 0) || (sockfd_n == 0)) {
       break;
     }
+  }
+
+  if (tty) {
+    result = tcsetattr(ttyfd, TCSANOW, &original_termios);
+    if (result < 0) {
+      error("ERROR setting original termios parameters");
+    }
+
+    close(infd);
   }
 
   close(sockfd);
