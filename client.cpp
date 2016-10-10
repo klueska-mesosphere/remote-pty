@@ -86,12 +86,21 @@ int main(int argc, char *argv[])
     error("ERROR making sockfd non blocking");
   }
 
+  struct async_msg_state msg_state;
+  memset(&msg_state, 0, sizeof(struct async_msg_state));
+
   while (true) {
+    int stdin_n = -1, sockfd_n = -1;
+    
     fd_set fd_in;
     FD_ZERO(&fd_in);
 
-    FD_SET(STDIN_FILENO, &fd_in);
-    FD_SET(sockfd, &fd_in);
+    if (stdin_n != 0) {
+      FD_SET(STDIN_FILENO, &fd_in);
+    }
+    if (sockfd_n != 0) {
+      FD_SET(sockfd, &fd_in);
+    }
 
     int result = select(sockfd + 1, &fd_in, NULL, NULL, NULL);
 
@@ -103,8 +112,6 @@ int main(int argc, char *argv[])
       continue;
     }
 
-    int stdin_n = -1, sockfd_n = -1;
-
     if (FD_ISSET(STDIN_FILENO, &fd_in)) {
       char buffer[256];
 
@@ -113,16 +120,33 @@ int main(int argc, char *argv[])
         error("ERROR reading from stdin");
       }
 
-      int n = send_io_msg(sockfd, STDIN_FILENO, buffer, stdin_n);
-      if (n < 0) {
-        error("ERROR writing to sockfd");
+      if (stdin_n > 0) {
+        int n = send_io_msg(sockfd, STDIN_FILENO, buffer, stdin_n);
+        if (n < 0) {
+          error("ERROR writing to sockfd");
+        }
       }
     }
  
     if (FD_ISSET(sockfd, &fd_in)) {
-      sockfd_n = read_then_write(sockfd, STDOUT_FILENO, 256);
+      sockfd_n = recv_msg_async(sockfd, &msg_state);
+
       if (sockfd_n < 0) {
-        error("ERROR writing to stdout");
+        error("ERROR reading from sockfd");
+      }
+
+      if (msg_state.finished) {
+        sockfd_n = write_all(
+            msg_state.message->msg.io.destfd,
+            msg_state.message->msg.io.data,
+            msg_state.message->msg.io.data_size);
+
+        if (sockfd_n < 0) {
+          error("ERROR writing to stdout");
+        }
+
+        free(msg_state.message);
+        memset(&msg_state, 0, sizeof(async_msg_state));
       }
     }
 

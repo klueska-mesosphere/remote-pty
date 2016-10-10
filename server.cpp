@@ -180,6 +180,9 @@ int main(int argc, char *argv[])
       result = select(maxfd + 1, &readfds, NULL, NULL, NULL);
 
       if (result < 0) {
+        if (errno == EINTR) {
+          continue;
+        }
         error("ERROR waiting on select");
       }
 
@@ -212,16 +215,34 @@ int main(int argc, char *argv[])
       }
 
       if (FD_ISSET(stdout_pipe[0], &readfds)) {
-        stdout_n = read_then_write(stdout_pipe[0], newsockfd, 256);
+        char buffer[256];
+
+        stdout_n = read_all(stdout_pipe[0], buffer, 256);
         if (stdout_n < 0) {
           error("ERROR reading from stdout");
+        }
+
+        if (stdout_n > 0) {
+          int n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, stdout_n);
+          if (n < 0) {
+            error("ERROR writing to newsockfd");
+          }
         }
       }
 
       if (FD_ISSET(stderr_pipe[0], &readfds)) {
-        stderr_n = read_then_write(stderr_pipe[0], newsockfd, 256);
+        char buffer[256];
+
+        stderr_n = read_all(stderr_pipe[0], buffer, 256);
         if (stderr_n < 0) {
           error("ERROR reading from stderr");
+        }
+
+        if (stderr_n > 0) {
+          int n = send_io_msg(newsockfd, STDERR_FILENO, buffer, stderr_n);
+          if (n < 0) {
+            error("ERROR writing to newsockfd");
+          }
         }
       }
 
