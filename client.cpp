@@ -106,9 +106,16 @@ int main(int argc, char *argv[])
     int stdin_n = -1, sockfd_n = -1;
 
     if (FD_ISSET(STDIN_FILENO, &fd_in)) {
-      stdin_n = read_then_write(STDIN_FILENO, sockfd, 256);
+      char buffer[256];
+
+      stdin_n = read_all(STDIN_FILENO, buffer, 256);
       if (stdin_n < 0) {
         error("ERROR reading from stdin");
+      }
+
+      int n = send_io_msg(sockfd, STDIN_FILENO, buffer, stdin_n);
+      if (n < 0) {
+        error("ERROR writing to sockfd");
       }
     }
  

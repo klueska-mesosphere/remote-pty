@@ -113,6 +113,32 @@ static inline int send_cmd_msg(
 }
 
 
+static inline int send_io_msg(int fd, int destfd, char *buffer, int size)
+{
+  struct msg_wrapper message;
+  message.type = IO_MSG;
+  message.msg.io.destfd = destfd;
+  message.msg.io.data_size = size;
+
+  int n = write_all(fd, (char*)&message, sizeof(message.type));
+  if (n < 0) {
+    return n;
+  }
+
+  n = write_all(fd, (char*)&message.msg.io, sizeof(struct io_msg));
+  if (n < 0) {
+    return n;
+  }
+
+  n = write_all(fd, buffer, size);
+  if (n < 0) {
+    return n;
+  }
+
+  return 0;
+}
+
+
 static inline int recv_cmd_msg(int fd, struct msg_wrapper **message)
 {
   struct cmd_msg cmd_msg;
@@ -176,6 +202,139 @@ static inline int recv_msg(int fd, struct msg_wrapper **message)
 }
 
 
+struct async_msg_state
+{
+  int type;
+  int phase;
+  int phase_total;
+  int msg_total;
+  bool finished;
+  struct msg_wrapper *message;
+  char buffer[sizeof((struct msg_wrapper*)0)->msg];
+};
+
+
+int recv_msg_async(
+    int fd,
+    struct async_msg_state *state)
+{
+  int phase_size = 0;
+  char *phase_dst = NULL;
+
+  while (true) {
+    switch (state->phase) {
+      case 0:
+        phase_size = sizeof(state->type);
+        phase_dst = state->buffer;
+        break;
+      case 1:
+        state->type = *((int*)state->buffer);
+
+        if (state->type == CMD_MSG) {
+          phase_size = sizeof(struct cmd_msg);
+        }
+        if (state->type == IO_MSG) {
+          phase_size = sizeof(struct io_msg);
+        }
+        if (state->type == TERMIOS_MSG) {
+          phase_size = sizeof(struct termios_msg);
+        }
+        if (state->type == WINSIZE_MSG) {
+          phase_size = sizeof(struct winsize_msg);
+        }
+
+        phase_dst = state->buffer;
+
+        break;
+      case 2:
+        if (state->type == CMD_MSG) {
+          phase_size = ((struct cmd_msg*)state->buffer)->strtab_size;
+
+          if (state->phase_total == 0) {
+            state->message = (struct msg_wrapper*) malloc(
+                sizeof(struct msg_wrapper) + phase_size);
+
+            state->message->type = state->type;
+            state->message->msg.cmd =
+              *((struct cmd_msg*)state->buffer);
+
+            phase_dst = (char*) state->message->msg.cmd.strtab;
+          }
+        }
+        if (state->type == IO_MSG) {
+          phase_size = ((struct io_msg*)state->buffer)->data_size;
+
+          if (state->phase_total == 0) {
+            state->message = (struct msg_wrapper*) malloc(
+                sizeof(struct msg_wrapper) + phase_size);
+
+            state->message->type = state->type;
+            state->message->msg.io =
+              *((struct io_msg*)state->buffer);
+
+            phase_dst = (char*) state->message->msg.io.data;
+          }
+        }
+        if (state->type == TERMIOS_MSG) {
+          if (state->phase_total == 0) {
+            state->message = (struct msg_wrapper*) malloc(
+                sizeof(struct msg_wrapper));
+
+            state->message->type = state->type;
+            state->message->msg.termios =
+              *((struct termios_msg*)state->buffer);
+
+            state->finished = true;
+            return 0;
+          }
+        }
+        if (state->type == WINSIZE_MSG) {
+          if (state->phase_total == 0) {
+            state->message = (struct msg_wrapper*) malloc(
+                sizeof(struct msg_wrapper));
+
+            state->message->type = state->type;
+            state->message->msg.winsize =
+              *((struct winsize_msg*)state->buffer);
+
+            state->finished = true;
+            return 0;
+          }
+        }
+        break;
+      case 3:
+        state->finished = true;
+        return 0;
+    }
+
+    int n = read_all(
+      fd,
+      phase_dst + state->phase_total,
+      phase_size - state->phase_total);
+
+    if (n < 0) {
+      return n;
+    }
+
+    if (n == 0) {
+      return state->msg_total;
+    }
+
+    state->phase_total += n;
+    state->msg_total += n;
+
+    if (state->phase_total < phase_size) {
+      return state->msg_total;
+    }
+
+    assert(state->phase_total == phase_size);
+
+    state->phase_total = 0;
+    state->phase++;
+  }
+}
+
+
 static inline char **build_cmd_array(struct cmd_msg *message)
 {
   char **cmd = (char **)malloc(message->num_cmd_strings + 1);
@@ -204,5 +363,12 @@ static inline void dump_cmd_msg(struct cmd_msg *message)
   }
 }
 
+
+static inline void dump_io_msg(struct io_msg *message)
+{
+  printf("destfd: %d\n", message->destfd);
+  printf("data_size: %d\n", message->data_size);
+  printf("data: %s\n", message->data);
+}
 
 #endif // MSGS_H

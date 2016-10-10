@@ -123,7 +123,6 @@ static inline int read_all(int fd, char *buf, size_t count)
 
 static inline int read_then_write(int infd, int outfd, int bufsize)
 {
-
   char buffer[bufsize];
 
   int n = read_all(infd, buffer, bufsize);

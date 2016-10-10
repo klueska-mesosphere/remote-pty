@@ -156,6 +156,9 @@ int main(int argc, char *argv[])
     close(stdout_pipe[1]);
     close(stderr_pipe[1]);
 
+    struct async_msg_state msg_state;
+    memset(&msg_state, 0, sizeof(struct async_msg_state));
+
     while(true) {
       int sockfd_n = -1, stdout_n = -1, stderr_n = -1;
 
@@ -185,9 +188,26 @@ int main(int argc, char *argv[])
       }
 
       if (FD_ISSET(newsockfd, &readfds)) {
-        sockfd_n = read_then_write(newsockfd, stdin_pipe[1], 256);
+        sockfd_n = recv_msg_async(newsockfd, &msg_state);
+
         if (sockfd_n < 0) {
-          error("ERROR writing to stdin");
+          error("ERROR reading from newsockfd");
+        }
+
+        if (msg_state.finished) {
+          assert(msg_state.message->msg.io.destfd == STDIN_FILENO);
+
+          sockfd_n = write_all(
+              stdin_pipe[1],
+              msg_state.message->msg.io.data,
+              msg_state.message->msg.io.data_size);
+
+          if (sockfd_n < 0) {
+            error("ERROR writing to stdin_pipe[1]");
+          }
+
+          free(msg_state.message);
+          memset(&msg_state, 0, sizeof(async_msg_state));
         }
       }
 
@@ -212,7 +232,6 @@ int main(int argc, char *argv[])
       if (child_done && stdout_n == 0 && stderr_n == 0) {
         break;
       }
-
     }
 
     close(newsockfd);
