@@ -13,19 +13,38 @@
 #include "common.h"
 #include "msgs.h"
 
+volatile int newsockfd = -1;
 volatile bool child_done;
+
+
+void sigchld(int sig)
+{
+  child_done = true;
+}
+
+
+void sigwinch(int sig){
+  signal(SIGWINCH, SIG_IGN);
+
+  struct winsize winsize;
+  int result = ioctl(0, TIOCGWINSZ, &winsize);
+  if (result < 0) {
+    error("ERROR getting winsize");
+  }
+
+  int n = send_winsize_msg(newsockfd, &winsize);
+  if (n < 0) {
+    error("ERROR writing to sockfd");
+  }
+
+  signal(SIGWINCH, sigwinch);
+}
 
 
 void usage(char *cmd)
 {
   fprintf(stderr, "Usage: %s <port>\n", cmd);
   exit(1);
-}
-
-
-void sigchld(int sig)
-{
-  child_done = true;
 }
 
 
@@ -96,14 +115,43 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       }
 
       if (msg_state.finished) {
-        sockfd_n = write_all(
-            ttyfd,
-            msg_state.message->msg.io.data,
-            msg_state.message->msg.io.data_size);
+        switch (msg_state.message->type) {
+          case TERMIOS_MSG: {
+            int result = tcsetattr(
+                ttyfd,
+                TCSANOW,
+                &msg_state.message->msg.termios.termios);
 
-        if (sockfd_n < 0) {
-          perror("ERROR writing to ttyfd");
-          break;
+            if (result < 0) {
+              perror("ERROR setting termios parameters");
+            }
+
+            break;
+          }
+          case WINSIZE_MSG: {
+            int result = ioctl(
+                ttyfd,
+                TIOCSWINSZ,
+                &msg_state.message->msg.winsize.winsize);
+
+            if (result < 0) {
+              perror("ERROR setting winsize parameters");
+            }
+
+            break;
+          }
+          case IO_MSG: {
+            sockfd_n = write_all(
+                ttyfd,
+                msg_state.message->msg.io.data,
+                msg_state.message->msg.io.data_size);
+
+            if (sockfd_n < 0) {
+              perror("ERROR writing to ttyfd");
+              break;
+            }
+            break;
+          }
         }
 
         free(msg_state.message);
@@ -121,7 +169,19 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       }
 
       if (ttyfd_n > 0) {
-        int n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
+        struct termios termios;
+        int result = tcgetattr(ttyfd, &termios);
+        if (result < 0) {
+          error("ERROR getting termios");
+        }
+
+        int n = send_termios_msg(newsockfd, &termios);
+        if (n < 0) {
+          perror("ERROR writing to newsockfd");
+          break;
+        }
+
+        n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
         if (n < 0) {
           perror("ERROR writing to newsockfd");
           break;
@@ -137,6 +197,8 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       break;
     }
   }
+
+  signal(SIGWINCH, SIG_IGN);
 
   return pid;
 }
@@ -355,13 +417,13 @@ int main(int argc, char *argv[])
     error("ERROR on listen");
   }
 
-  signal (SIGCHLD, sigchld);
+  signal(SIGCHLD, sigchld);
 
   while (true) {
     struct sockaddr_in cli_addr;
     socklen_t clilen = sizeof(cli_addr);
 
-    int newsockfd = accept(
+    newsockfd = accept(
         sockfd,
         (struct sockaddr *) &cli_addr,
         &clilen);

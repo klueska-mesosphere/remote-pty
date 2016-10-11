@@ -13,9 +13,11 @@
 #include "common.h"
 #include "msgs.h"
 
-int ttyfd = -1;
+volatile int sockfd = -1;
+volatile int ttyfd = -1;
 struct termios original_termios;
 struct winsize original_winsize;
+
 
 void sigterm(int sig)
 {
@@ -24,7 +26,30 @@ void sigterm(int sig)
      error("ERROR setting original termios parameters");
    }
 
-   ioctl(0, TIOCGWINSZ, &original_winsize);
+   result = ioctl(0, TIOCSWINSZ, &original_winsize);
+   if (result < 0) {
+     error("ERROR setting original winsize parameters");
+   }
+
+   _exit(0);
+}
+
+
+void sigwinch(int sig){
+  signal(SIGWINCH, SIG_IGN);
+
+  struct winsize winsize;
+  int result = ioctl(0, TIOCGWINSZ, &winsize);
+  if (result < 0) {
+    error("ERROR getting winsize");
+  }
+
+  int n = send_winsize_msg(sockfd, &winsize);
+  if (n < 0) {
+    error("ERROR writing to sockfd");
+  }
+
+  signal(SIGWINCH, sigwinch);
 }
 
 
@@ -64,7 +89,7 @@ int main(int argc, char *argv[])
 
   char **cmd = &argv[cmd_start_idx];
 
-  int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+  sockfd = socket(AF_INET, SOCK_STREAM, 0);
   if (sockfd < 0)  {
     error("ERROR opening socket");
   }
@@ -106,11 +131,17 @@ int main(int argc, char *argv[])
       error("ERROR getting termios");
     }
 
-    ioctl(0, TIOCGWINSZ, &original_winsize);
+    result = ioctl(0, TIOCGWINSZ, &original_winsize);
+    if (result < 0) {
+      error("ERROR getting winsize");
+    }
 
     infd = ttyfd;
     outfd = ttyfd;
     errfd = ttyfd;
+
+    signal(SIGTERM, sigterm);
+    signal(SIGWINCH, sigwinch);
   }
 
   int n = send_cmd_msg(
@@ -156,6 +187,9 @@ int main(int argc, char *argv[])
     int result = select(maxfd + 1, &fd_in, NULL, NULL, NULL);
 
     if (result < 0) {
+      if (errno == EINTR) {
+        continue;
+      }
       error("ERROR waiting on select");
     }
 
@@ -172,7 +206,19 @@ int main(int argc, char *argv[])
       }
 
       if (infd_n > 0) {
-        int n = send_io_msg(sockfd, STDIN_FILENO, buffer, infd_n);
+        struct termios termios;
+        int result = tcgetattr(ttyfd, &termios);
+        if (result < 0) {
+          error("ERROR getting termios");
+        }
+
+        int n = send_termios_msg(sockfd, &termios);
+        if (n < 0) {
+          perror("ERROR writing to newsockfd");
+          break;
+        }
+
+        n = send_io_msg(sockfd, STDIN_FILENO, buffer, infd_n);
         if (n < 0) {
           error("ERROR writing to sockfd");
         }
@@ -187,27 +233,56 @@ int main(int argc, char *argv[])
       }
 
       if (msg_state.finished) {
-        int destfd = -1;
+        switch (msg_state.message->type) {
+          case TERMIOS_MSG: {
+            int result = tcsetattr(
+                ttyfd,
+                TCSANOW,
+                &msg_state.message->msg.termios.termios);
 
-        switch (msg_state.message->msg.io.destfd) {
-          case STDIN_FILENO:
-            destfd = infd;
-            break;
-          case STDOUT_FILENO:
-            destfd = outfd;
-            break;
-          case STDERR_FILENO:
-            destfd = errfd;
-            break;
-        }
+            if (result < 0) {
+              error("ERROR setting termios parameters");
+            }
 
-        sockfd_n = write_all(
-            destfd,
-            msg_state.message->msg.io.data,
-            msg_state.message->msg.io.data_size);
+            break;
+          }
+          case WINSIZE_MSG: {
+            int result = ioctl(
+                ttyfd,
+                TIOCSWINSZ,
+                &msg_state.message->msg.winsize.winsize);
 
-        if (sockfd_n < 0) {
-          error("ERROR writing to stdout");
+            if (result < 0) {
+              error("ERROR setting winsize parameters");
+            }
+
+            break;
+          }
+          case IO_MSG: {
+            int destfd = -1;
+
+            switch (msg_state.message->msg.io.destfd) {
+              case STDIN_FILENO:
+                destfd = infd;
+                break;
+              case STDOUT_FILENO:
+                destfd = outfd;
+                break;
+              case STDERR_FILENO:
+                destfd = errfd;
+                break;
+            }
+
+            sockfd_n = write_all(
+                destfd,
+                msg_state.message->msg.io.data,
+                msg_state.message->msg.io.data_size);
+
+            if (sockfd_n < 0) {
+              error("ERROR writing to stdout");
+            }
+            break;
+          }
         }
 
         free(msg_state.message);
