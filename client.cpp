@@ -206,16 +206,18 @@ int main(int argc, char *argv[])
       }
 
       if (infd_n > 0) {
-        struct termios termios;
-        int result = tcgetattr(ttyfd, &termios);
-        if (result < 0) {
-          error("ERROR getting termios");
-        }
+        if (tty) {
+          struct termios termios;
+          int result = tcgetattr(ttyfd, &termios);
+          if (result < 0) {
+            error("ERROR getting termios");
+          }
 
-        int n = send_termios_msg(sockfd, &termios);
-        if (n < 0) {
-          perror("ERROR writing to newsockfd");
-          break;
+          int n = send_termios_msg(sockfd, &termios);
+          if (n < 0) {
+            perror("ERROR writing to newsockfd");
+            break;
+          }
         }
 
         n = send_io_msg(sockfd, STDIN_FILENO, buffer, infd_n);
@@ -301,7 +303,9 @@ int main(int argc, char *argv[])
       error("ERROR setting original termios parameters");
     }
 
-    close(infd);
+    signal(SIGTERM, SIG_IGN);
+    signal(SIGWINCH, SIG_IGN);
+    close(ttyfd);
   }
 
   close(sockfd);

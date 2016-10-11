@@ -79,6 +79,15 @@ static inline int write_all(int fd, const char *buf, size_t count)
       if (errno == EINTR) {
         continue;
       }
+      if (errno == EWOULDBLOCK) {
+        return offset;
+      }
+      if (errno == EIO && isatty(fd)) {
+        return offset;
+      }
+      if (offset > 0) {
+        return offset;
+      }
       return length;
     }
 
@@ -103,6 +112,12 @@ static inline int read_all(int fd, char *buf, size_t count)
         continue;
       }
       if (errno == EWOULDBLOCK) {
+        return offset;
+      }
+      if (errno == EIO && isatty(fd)) {
+        return offset;
+      }
+      if (offset > 0) {
         return offset;
       }
       return length;

@@ -98,8 +98,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       if (errno == EINTR) {
         continue;
       }
-      perror("ERROR waiting on select");
-      break;
+      error("ERROR waiting on select");
     }
 
     if (result == 0) {
@@ -110,8 +109,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       sockfd_n = recv_msg_async(newsockfd, &msg_state);
 
       if (sockfd_n < 0) {
-        perror("ERROR reading from newsockfd");
-        break;
+        error("ERROR reading from newsockfd");
       }
 
       if (msg_state.finished) {
@@ -123,9 +121,8 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
                 &msg_state.message->msg.termios.termios);
 
             if (result < 0) {
-              perror("ERROR setting termios parameters");
+              error("ERROR setting termios parameters");
             }
-
             break;
           }
           case WINSIZE_MSG: {
@@ -135,9 +132,8 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
                 &msg_state.message->msg.winsize.winsize);
 
             if (result < 0) {
-              perror("ERROR setting winsize parameters");
+              error("ERROR setting winsize parameters");
             }
-
             break;
           }
           case IO_MSG: {
@@ -147,8 +143,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
                 msg_state.message->msg.io.data_size);
 
             if (sockfd_n < 0) {
-              perror("ERROR writing to ttyfd");
-              break;
+              error("ERROR writing to ttyfd");
             }
             break;
           }
@@ -164,8 +159,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 
       ttyfd_n = read_all(ttyfd, buffer, 256);
       if (ttyfd_n < 0) {
-        perror("ERROR reading from ttyfd");
-        break;
+        error("ERROR reading from ttyfd");
       }
 
       if (ttyfd_n > 0) {
@@ -177,14 +171,12 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 
         int n = send_termios_msg(newsockfd, &termios);
         if (n < 0) {
-          perror("ERROR writing to newsockfd");
-          break;
+          error("ERROR writing to newsockfd");
         }
 
         n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
         if (n < 0) {
-          perror("ERROR writing to newsockfd");
-          break;
+          error("ERROR writing to newsockfd");
         }
       }
     }
@@ -199,6 +191,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
   }
 
   signal(SIGWINCH, SIG_IGN);
+  close(ttyfd);
 
   return pid;
 }
