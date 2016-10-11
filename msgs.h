@@ -325,7 +325,7 @@ int recv_msg_async(
               *((struct termios_msg*)state->buffer);
 
             state->finished = true;
-            return 0;
+            return state->msg_total;
           }
         }
         if (state->type == WINSIZE_MSG) {
@@ -338,13 +338,13 @@ int recv_msg_async(
               *((struct winsize_msg*)state->buffer);
 
             state->finished = true;
-            return 0;
+            return state->msg_total;
           }
         }
         break;
       case 3:
         state->finished = true;
-        return 0;
+        return state->msg_total;
     }
 
     int n = read_all(
