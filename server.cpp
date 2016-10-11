@@ -1,4 +1,9 @@
+#ifdef __linux__
 #include <pty.h>
+#else
+#include <util.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
