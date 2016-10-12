@@ -256,9 +256,9 @@ int recv_msg_async(
             state->message->type = state->type;
             state->message->msg.cmd =
               *((struct cmd_msg*)state->buffer);
-
-            phase_dst = (char*) state->message->msg.cmd.strtab;
           }
+
+          phase_dst = (char*) state->message->msg.cmd.strtab;
         }
         if (state->type == IO_MSG) {
           phase_size = ((struct io_msg*)state->buffer)->data_size;
@@ -270,9 +270,9 @@ int recv_msg_async(
             state->message->type = state->type;
             state->message->msg.io =
               *((struct io_msg*)state->buffer);
-
-            phase_dst = (char*) state->message->msg.io.data;
           }
+
+          phase_dst = (char*) state->message->msg.io.data;
         }
         if (state->type == WINSIZE_MSG) {
           if (state->phase_total == 0) {
