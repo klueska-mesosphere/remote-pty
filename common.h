@@ -80,7 +80,7 @@ static inline int write_all(int fd, const char *buf, size_t count)
         continue;
       }
       if (errno == EWOULDBLOCK) {
-        return offset;
+        continue; // We don't ever want the write side non-blocking!
       }
       if (errno == EIO && isatty(fd)) {
         return offset;
