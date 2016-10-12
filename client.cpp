@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <netinet/in.h>
@@ -131,6 +132,13 @@ int main(int argc, char *argv[])
       error("ERROR getting termios");
     }
 
+    struct termios new_termios = original_termios;
+    cfmakeraw(&new_termios);
+    result = tcsetattr(ttyfd, TCSANOW, &new_termios);
+    if (result < 0) {
+      error("ERROR setting termios");
+    }
+
     result = ioctl(0, TIOCGWINSZ, &original_winsize);
     if (result < 0) {
       error("ERROR getting winsize");
@@ -149,7 +157,6 @@ int main(int argc, char *argv[])
       cmd,
       argc - cmd_start_idx,
       tty,
-      &original_termios,
       &original_winsize);
 
   if (n < 0) {
@@ -206,20 +213,6 @@ int main(int argc, char *argv[])
       }
 
       if (infd_n > 0) {
-        if (tty) {
-          struct termios termios;
-          int result = tcgetattr(ttyfd, &termios);
-          if (result < 0) {
-            error("ERROR getting termios");
-          }
-
-          int n = send_termios_msg(sockfd, &termios);
-          if (n < 0) {
-            perror("ERROR writing to newsockfd");
-            break;
-          }
-        }
-
         n = send_io_msg(sockfd, STDIN_FILENO, buffer, infd_n);
         if (n < 0) {
           error("ERROR writing to sockfd");
@@ -236,18 +229,6 @@ int main(int argc, char *argv[])
 
       if (msg_state.finished) {
         switch (msg_state.message->type) {
-          case TERMIOS_MSG: {
-            int result = tcsetattr(
-                ttyfd,
-                TCSANOW,
-                &msg_state.message->msg.termios.termios);
-
-            if (result < 0) {
-              error("ERROR setting termios parameters");
-            }
-
-            break;
-          }
           case WINSIZE_MSG: {
             int result = ioctl(
                 ttyfd,

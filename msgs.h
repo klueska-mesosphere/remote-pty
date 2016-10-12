@@ -1,8 +1,6 @@
 #ifndef MSGS_H
 #define MSGS_H
 
-#include <termios.h>
-
 #include <sys/ioctl.h>
 
 #include "common.h"
@@ -11,7 +9,6 @@ enum msg_type
 {
   CMD_MSG,
   IO_MSG,
-  TERMIOS_MSG,
   WINSIZE_MSG,
 };
 
@@ -19,7 +16,6 @@ enum msg_type
 struct cmd_msg
 {
   bool tty;
-  struct termios termios;
   struct winsize winsize;
   int num_cmd_strings;
   int strtab_size;
@@ -35,12 +31,6 @@ struct io_msg
 };
 
 
-struct termios_msg
-{
-  struct termios termios;
-};
-
-
 struct winsize_msg
 {
   struct winsize winsize;
@@ -53,7 +43,6 @@ struct msg_wrapper
   union {
     struct cmd_msg cmd;
     struct io_msg io;
-    struct termios_msg termios;
     struct winsize_msg winsize;
   } msg;
 };
@@ -64,17 +53,12 @@ static inline int send_cmd_msg(
     char **cmd,
     int num_elements,
     bool tty,
-    struct termios *termios,
     struct winsize *winsize)
 {
   struct cmd_msg message = {0};
   int string_lengths[num_elements];
 
   message.tty = tty;
-
-  if (termios != NULL) {
-    message.termios = *termios;
-  }
 
   if (winsize != NULL) {
     message.winsize = *winsize;
@@ -131,26 +115,6 @@ static inline int send_io_msg(int fd, int destfd, char *buffer, int size)
   }
 
   n = write_all(fd, buffer, size);
-  if (n < 0) {
-    return n;
-  }
-
-  return 0;
-}
-
-
-static inline int send_termios_msg(int fd, struct termios *termios)
-{
-  struct msg_wrapper message;
-  message.type = TERMIOS_MSG;
-  message.msg.termios.termios = *termios;
-
-  int n = write_all(fd, (char*)&message, sizeof(message.type));
-  if (n < 0) {
-    return n;
-  }
-
-  n = write_all(fd, (char*)&message.msg.termios, sizeof(struct termios_msg));
   if (n < 0) {
     return n;
   }
@@ -232,8 +196,6 @@ static inline int recv_msg(int fd, struct msg_wrapper **message)
       return recv_cmd_msg(fd, message);
     case IO_MSG:
       break;
-    case TERMIOS_MSG:
-      break;
     case WINSIZE_MSG:
       break;
   }
@@ -276,9 +238,6 @@ int recv_msg_async(
         if (state->type == IO_MSG) {
           phase_size = sizeof(struct io_msg);
         }
-        if (state->type == TERMIOS_MSG) {
-          phase_size = sizeof(struct termios_msg);
-        }
         if (state->type == WINSIZE_MSG) {
           phase_size = sizeof(struct winsize_msg);
         }
@@ -313,19 +272,6 @@ int recv_msg_async(
               *((struct io_msg*)state->buffer);
 
             phase_dst = (char*) state->message->msg.io.data;
-          }
-        }
-        if (state->type == TERMIOS_MSG) {
-          if (state->phase_total == 0) {
-            state->message = (struct msg_wrapper*) malloc(
-                sizeof(struct msg_wrapper));
-
-            state->message->type = state->type;
-            state->message->msg.termios =
-              *((struct termios_msg*)state->buffer);
-
-            state->finished = true;
-            return state->msg_total;
           }
         }
         if (state->type == WINSIZE_MSG) {

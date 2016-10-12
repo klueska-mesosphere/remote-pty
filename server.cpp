@@ -57,7 +57,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 {
   int ttyfd;
   char tty_name[256];
-  int pid = forkpty(&ttyfd, tty_name, &message->termios, &message->winsize);
+  int pid = forkpty(&ttyfd, tty_name, NULL, &message->winsize);
 
   if (pid == 0) {
     char **cmd = build_cmd_array(message);
@@ -119,17 +119,6 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
 
       if (msg_state.finished) {
         switch (msg_state.message->type) {
-          case TERMIOS_MSG: {
-            int result = tcsetattr(
-                ttyfd,
-                TCSANOW,
-                &msg_state.message->msg.termios.termios);
-
-            if (result < 0) {
-              error("ERROR setting termios parameters");
-            }
-            break;
-          }
           case WINSIZE_MSG: {
             int result = ioctl(
                 ttyfd,
@@ -168,18 +157,7 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
       }
 
       if (ttyfd_n > 0) {
-        struct termios termios;
-        int result = tcgetattr(ttyfd, &termios);
-        if (result < 0) {
-          error("ERROR getting termios");
-        }
-
-        int n = send_termios_msg(newsockfd, &termios);
-        if (n < 0) {
-          error("ERROR writing to newsockfd");
-        }
-
-        n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
+        int n = send_io_msg(newsockfd, STDOUT_FILENO, buffer, ttyfd_n);
         if (n < 0) {
           error("ERROR writing to newsockfd");
         }
