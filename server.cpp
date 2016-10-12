@@ -149,9 +149,9 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
     }
 
     if (FD_ISSET(ttyfd, &readfds)) {
-      char buffer[256];
+      char buffer[4096];
 
-      ttyfd_n = read_all(ttyfd, buffer, 256);
+      ttyfd_n = read_all(ttyfd, buffer, 4096);
       if (ttyfd_n < 0) {
         error("ERROR reading from ttyfd");
       }
@@ -299,9 +299,9 @@ int run_without_pty(int sockfd, int newsockfd, struct cmd_msg *message)
     }
 
     if (FD_ISSET(stdout_pipe[0], &readfds)) {
-      char buffer[256];
+      char buffer[4096];
 
-      stdout_n = read_all(stdout_pipe[0], buffer, 256);
+      stdout_n = read_all(stdout_pipe[0], buffer, 4096);
       if (stdout_n < 0) {
         error("ERROR reading from stdout");
       }
@@ -315,9 +315,9 @@ int run_without_pty(int sockfd, int newsockfd, struct cmd_msg *message)
     }
 
     if (FD_ISSET(stderr_pipe[0], &readfds)) {
-      char buffer[256];
+      char buffer[4096];
 
-      stderr_n = read_all(stderr_pipe[0], buffer, 256);
+      stderr_n = read_all(stderr_pipe[0], buffer, 4096);
       if (stderr_n < 0) {
         error("ERROR reading from stderr");
       }

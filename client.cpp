@@ -205,9 +205,9 @@ int main(int argc, char *argv[])
     }
 
     if (FD_ISSET(infd, &fd_in)) {
-      char buffer[256];
+      char buffer[4096];
 
-      infd_n = read_all(infd, buffer, 256);
+      infd_n = read_all(infd, buffer, 4096);
       if (infd_n < 0) {
         error("ERROR reading from infd");
       }
