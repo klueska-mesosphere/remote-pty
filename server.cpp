@@ -18,31 +18,12 @@
 #include "common.h"
 #include "msgs.h"
 
-volatile int newsockfd = -1;
 volatile bool child_done;
 
 
 void sigchld(int sig)
 {
   child_done = true;
-}
-
-
-void sigwinch(int sig){
-  signal(SIGWINCH, SIG_IGN);
-
-  struct winsize winsize;
-  int result = ioctl(0, TIOCGWINSZ, &winsize);
-  if (result < 0) {
-    error("ERROR getting winsize");
-  }
-
-  int n = send_winsize_msg(newsockfd, &winsize);
-  if (n < 0) {
-    error("ERROR writing to sockfd");
-  }
-
-  signal(SIGWINCH, sigwinch);
 }
 
 
@@ -173,7 +154,6 @@ int run_with_pty(int sockfd, int newsockfd, struct cmd_msg *message)
     }
   }
 
-  signal(SIGWINCH, SIG_IGN);
   close(ttyfd);
 
   return pid;
@@ -399,7 +379,7 @@ int main(int argc, char *argv[])
     struct sockaddr_in cli_addr;
     socklen_t clilen = sizeof(cli_addr);
 
-    newsockfd = accept(
+    int newsockfd = accept(
         sockfd,
         (struct sockaddr *) &cli_addr,
         &clilen);
